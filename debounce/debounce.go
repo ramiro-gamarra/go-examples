@@ -3,40 +3,48 @@ package main
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"os/signal"
 	"time"
 )
+
+/*
+  This example demonstrates an event pipeline that debounces (dedupes) events.
+  The first stage generates a certain amount of events at a given interval. Keys for the
+  events emitted will belong to a set as large as specified. The second stage groups
+  these events by key, emitting a batch (set) after a time window has passed, or once
+  the batch meets a specific size.
+*/
 
 const timeFmt = "[15:04:05]"
 
 func main() {
 	ctx := withShutdown(context.Background())
 
-	events := generateEvents(ctx, 1000)
-	batches := groupWithin(ctx, events, time.Millisecond*500, 100)
+	eventChan := generateEvents(ctx, 10*time.Millisecond, 1000, 50)
+	setChan := groupWithin(ctx, eventChan, time.Millisecond*500, 100)
 
-	for b := range batches {
-		fmt.Printf("%s batch size: %d\n", time.Now().Format(timeFmt), b.len())
+	for set := range setChan {
+		fmt.Printf("%s set size: %d\n", time.Now().Format(timeFmt), set.len())
 	}
 }
 
-func generateEvents(ctx context.Context, count int) <-chan event {
+func generateEvents(ctx context.Context, interval time.Duration, count, keyRange int) <-chan event {
 	out := make(chan event)
 
 	go func() {
 		defer close(out)
 
-		ticker := time.NewTicker(10 * time.Millisecond)
-		for count > 0 {
+		ticker := time.NewTicker(interval)
+		for i := count; i > 0; i-- {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				out <- event{
-					entityID: fmt.Sprintf("event_%d", count),
+					entityID: fmt.Sprintf("event_%d", rand.Intn(keyRange)),
 				}
-				count--
 			}
 		}
 	}()
